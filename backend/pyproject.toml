@@ -1,0 +1,30 @@
+
+[project]
+name = "learnloop-ai-backend"
+version = "0.1.0"
+description = "Adaptive Learning Intelligence Platform"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi==0.165.0",
+    "pydantic==2.14.4",
+    "pydantic-settings==2.16.3",
+    "python-dotenv==1.2.4",
+    "supabase==2.34.1",
+    "uvicorn==0.54.0",
+    "google-genai==3.6.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends"]
