@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest  # pyright: ignore[reportMissingImports]
 from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
@@ -9,6 +9,7 @@ from app.api.dependencies import (
     get_current_user,
     get_supabase,
 )
+from app.learning.adaptive import QuestionCandidate
 from app.main import app
 from app.schemas.evaluation import AnswerEvaluation, MisconceptionFinding
 
@@ -472,4 +473,28 @@ def test_next_question_returns_503_when_database_fails(
     assert response.status_code == 503
     assert response.json()["detail"] == (
         "Adaptive question data is unavailable."
+    )
+
+def test_next_question_uses_authenticated_student_id(
+    api_client,
+    authenticated_client,
+):
+    candidate = QuestionCandidate(
+        question_id="22222222-2222-4222-8222-222222222222",
+        concept_id="11111111-1111-4111-8111-111111111111",
+        question_text="What is reflection of light?",
+        difficulty=2,
+    )
+
+    with patch(
+        "app.api.routes.learning.AdaptiveQuestionService"
+    ) as service_class:
+        service_class.return_value.get_next_question.return_value = candidate
+
+        response = api_client.get("/api/v1/learning/next-question")
+
+    assert response.status_code == 200
+    service_class.assert_called_once()
+    service_class.return_value.get_next_question.assert_called_once_with(
+        "authenticated-student-123"
     )
