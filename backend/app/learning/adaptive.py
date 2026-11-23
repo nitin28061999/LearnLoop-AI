@@ -1,5 +1,6 @@
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from math import isfinite
 
 
@@ -32,12 +33,36 @@ def select_adaptive_question(
     mastery_by_concept: dict[str, float],
     attempted_question_texts: set[str] | None = None,
     prerequisites_by_concept: dict[str, set[str]] | None = None,
+    next_review_by_concept: dict[str, datetime] | None = None,
+    current_time: datetime | None = None,
 ) -> QuestionCandidate | None:
     if not questions:
         return None
 
     attempted = attempted_question_texts or set()
     prerequisites = prerequisites_by_concept or {}
+    next_reviews = next_review_by_concept or {}
+
+    if next_reviews and current_time is None:
+        current_time = datetime.now(UTC)
+
+    if current_time is not None:
+        if (
+            not isinstance(current_time, datetime)
+            or current_time.tzinfo is None
+            or current_time.utcoffset() is None
+        ):
+            raise ValueError("current_time must be timezone-aware.")
+
+    for concept_id, next_review_at in next_reviews.items():
+        if (
+            not isinstance(next_review_at, datetime)
+            or next_review_at.tzinfo is None
+            or next_review_at.utcoffset() is None
+        ):
+            raise ValueError(
+                f"Invalid next review time for concept {concept_id}."
+            )
 
     for concept_id, mastery in mastery_by_concept.items():
         if not isinstance(mastery, (int, float)) or isinstance(mastery, bool):
@@ -71,8 +96,26 @@ def select_adaptive_question(
     def selection_score(question: QuestionCandidate) -> tuple:
         mastery = mastery_by_concept.get(question.concept_id, 0.2)
         desired_difficulty = target_difficulty(mastery)
+        next_review_at = next_reviews.get(question.concept_id)
+        is_due = (
+            current_time is not None
+            and next_review_at is not None
+            and next_review_at <= current_time
+        )
+
+        if is_due:
+            assert next_review_at is not None
+            return (
+                0,
+                next_review_at,
+                mastery,
+                abs(question.difficulty - desired_difficulty),
+                question.question_text in attempted,
+                question.question_id,
+            )
 
         return (
+            1,
             mastery,
             abs(question.difficulty - desired_difficulty),
             question.question_text in attempted,

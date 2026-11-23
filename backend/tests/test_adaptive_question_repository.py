@@ -1,4 +1,5 @@
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -275,3 +276,40 @@ def test_repository_rejects_duplicate_prerequisite_relationships():
 
     with pytest.raises(AdaptiveQuestionDataError, match="Duplicate"):
         AdaptiveQuestionRepository._build_prerequisites(rows)
+
+
+def test_repository_returns_next_review_dates_for_student_concepts():
+    (
+        client,
+        _question_query,
+        mastery_query,
+        _attempt_query,
+        _prerequisite_query,
+    ) = build_mock_client()
+
+    mastery_query.execute.return_value = SimpleNamespace(
+        data=[
+            {
+                "concept_id": "concept-1",
+                "mastery_probability": 0.25,
+                "next_review_at": "2026-11-21T12:00:00+00:00",
+            },
+            {
+                "concept_id": "concept-2",
+                "mastery_probability": 0.75,
+                "next_review_at": None,
+            },
+        ]
+    )
+
+    context = AdaptiveQuestionRepository(
+        client
+    ).get_selection_context("student-123")
+
+    assert context.next_review_by_concept == {
+        "concept-1": datetime(2026, 11, 21, 12, 0, tzinfo=UTC),
+    }
+
+    mastery_query.select.assert_called_once_with(
+        "concept_id, mastery_probability, next_review_at"
+    )

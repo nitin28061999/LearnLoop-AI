@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -212,3 +213,32 @@ def test_repeated_stale_attempts_eventually_raise_error():
         )
 
     assert client.rpc.call_count == 3
+
+
+def test_learning_service_calculates_and_persists_review_schedule():
+    reviewed_at = datetime(2026, 11, 22, 12, 0, tzinfo=UTC)
+    client = build_mock_client()
+    service = LearningService(client)
+
+    result = service.record_answer(
+        student_id="student-123",
+        concept_id="concept-456",
+        question_text="What is reflection of light?",
+        student_answer="Light bounces back from a surface.",
+        reasoning="The ray returns after striking the surface.",
+        is_correct=True,
+        reviewed_at=reviewed_at,
+    )
+
+    _, parameters = client.rpc.call_args.args
+
+    assert parameters["p_repetition_count"] == 1
+    assert parameters["p_review_interval_days"] == 1
+    assert parameters["p_ease_factor"] == pytest.approx(2.6)
+    assert parameters["p_next_review_at"] == (
+        reviewed_at + timedelta(days=1)
+    ).isoformat()
+    assert parameters["p_last_reviewed_at"] == reviewed_at.isoformat()
+
+    assert result.review_state.repetition_count == 1
+    assert result.review_state.interval_days == 1

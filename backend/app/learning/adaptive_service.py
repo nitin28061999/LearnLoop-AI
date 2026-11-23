@@ -1,4 +1,6 @@
 
+from datetime import UTC, datetime
+
 from app.learning.adaptive import (
     QuestionCandidate,
     select_adaptive_question,
@@ -28,4 +30,6 @@ class AdaptiveQuestionService:
             mastery_by_concept=context.mastery_by_concept,
             attempted_question_texts=context.attempted_question_texts,
             prerequisites_by_concept=context.prerequisites_by_concept,
+            next_review_by_concept=context.next_review_by_concept,
+            current_time=datetime.now(UTC),
         )

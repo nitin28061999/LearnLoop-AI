@@ -1,4 +1,6 @@
 
+from datetime import UTC, datetime, timedelta
+
 import pytest  # pyright: ignore[reportMissingImports]
 
 from app.learning.adaptive import (  # pyright: ignore[reportMissingImports]
@@ -244,3 +246,116 @@ def test_missing_prerequisite_mastery_uses_initial_bkt_probability():
     )
 
     assert result is None
+
+
+def test_due_review_concept_is_prioritized_over_weaker_future_review():
+    now = datetime(2026, 11, 22, 12, 0, tzinfo=UTC)
+
+    questions = [
+        make_question("q1", "weak-concept", 1),
+        make_question("q2", "due-concept", 2),
+    ]
+
+    result = select_adaptive_question(
+        questions,
+        mastery_by_concept={
+            "weak-concept": 0.10,
+            "due-concept": 0.60,
+        },
+        next_review_by_concept={
+            "weak-concept": now + timedelta(days=3),
+            "due-concept": now - timedelta(days=1),
+        },
+        current_time=now,
+    )
+
+    assert result is not None
+    assert result.question_id == "q2"
+
+
+def test_review_due_exactly_at_current_time_is_prioritized():
+    now = datetime(2026, 11, 22, 12, 0, tzinfo=UTC)
+
+    questions = [
+        make_question("q1", "future-concept", 1),
+        make_question("q2", "due-concept", 2),
+    ]
+
+    result = select_adaptive_question(
+        questions,
+        mastery_by_concept={
+            "future-concept": 0.10,
+            "due-concept": 0.60,
+        },
+        next_review_by_concept={
+            "future-concept": now + timedelta(seconds=1),
+            "due-concept": now,
+        },
+        current_time=now,
+    )
+
+    assert result is not None
+    assert result.question_id == "q2"
+
+
+def test_most_overdue_concept_is_prioritized():
+    now = datetime(2026, 11, 22, 12, 0, tzinfo=UTC)
+
+    questions = [
+        make_question("q1", "recently-due", 1),
+        make_question("q2", "long-overdue", 1),
+    ]
+
+    result = select_adaptive_question(
+        questions,
+        mastery_by_concept={
+            "recently-due": 0.10,
+            "long-overdue": 0.60,
+        },
+        next_review_by_concept={
+            "recently-due": now - timedelta(days=1),
+            "long-overdue": now - timedelta(days=5),
+        },
+        current_time=now,
+    )
+
+    assert result is not None
+    assert result.question_id == "q2"
+
+
+def test_future_review_does_not_override_weakest_concept():
+    now = datetime(2026, 11, 22, 12, 0, tzinfo=UTC)
+
+    questions = [
+        make_question("q1", "strong-concept", 1),
+        make_question("q2", "weak-concept", 1),
+    ]
+
+    result = select_adaptive_question(
+        questions,
+        mastery_by_concept={
+            "strong-concept": 0.80,
+            "weak-concept": 0.20,
+        },
+        next_review_by_concept={
+            "strong-concept": now + timedelta(days=5),
+            "weak-concept": now + timedelta(days=2),
+        },
+        current_time=now,
+    )
+
+    assert result is not None
+    assert result.question_id == "q2"
+
+
+def test_selector_rejects_naive_next_review_timestamp():
+    questions = [make_question("q1", "concept-1", 1)]
+
+    with pytest.raises(ValueError, match="Invalid next review time"):
+        select_adaptive_question(
+            questions,
+            mastery_by_concept={"concept-1": 0.2},
+            next_review_by_concept={
+                "concept-1": datetime(2026, 11, 22, 12, 0),
+            },
+        )

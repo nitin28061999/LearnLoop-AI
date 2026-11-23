@@ -1,6 +1,7 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 from math import isfinite
 
 from supabase import Client
@@ -18,6 +19,7 @@ class AdaptiveSelectionContext:
     mastery_by_concept: dict[str, float]
     attempted_question_texts: set[str]
     prerequisites_by_concept: dict[str, set[str]] = field(default_factory=dict)
+    next_review_by_concept: dict[str, datetime] = field(default_factory=dict)
 
 
 class AdaptiveQuestionRepository:
@@ -43,7 +45,7 @@ class AdaptiveQuestionRepository:
 
             mastery_response = (
                 self.client.table("student_concept_mastery")
-                .select("concept_id, mastery_probability")
+                .select("concept_id, mastery_probability, next_review_at")
                 .eq("student_id", student_id)
                 .execute()
             )
@@ -73,12 +75,16 @@ class AdaptiveQuestionRepository:
         prerequisites = self._build_prerequisites(
             prerequisite_response.data or []
         )
+        next_reviews = self._build_next_reviews(
+            mastery_response.data or []
+        )
 
         return AdaptiveSelectionContext(
             questions=questions,
             mastery_by_concept=mastery,
             attempted_question_texts=attempted,
             prerequisites_by_concept=prerequisites,
+            next_review_by_concept=next_reviews,
         )
 
     @staticmethod
@@ -170,6 +176,58 @@ class AdaptiveQuestionRepository:
             mastery_by_concept[concept_id] = mastery
 
         return mastery_by_concept
+
+    @staticmethod
+    def _build_next_reviews(
+        rows: Sequence[object],
+    ) -> dict[str, datetime]:
+        next_reviews: dict[str, datetime] = {}
+
+        for row in rows:
+            if not isinstance(row, dict):
+                raise AdaptiveQuestionDataError(
+                    "Invalid mastery record."
+                )
+
+            concept_id = row.get("concept_id")
+            next_review_at = row.get("next_review_at")
+
+            if (
+                not isinstance(concept_id, str)
+                or not concept_id.strip()
+            ):
+                raise AdaptiveQuestionDataError(
+                    "Concept fields are invalid."
+                )
+
+            if next_review_at is None:
+                continue
+
+            if not isinstance(next_review_at, str):
+                raise AdaptiveQuestionDataError(
+                    "Next review timestamp is invalid."
+                )
+
+            try:
+                parsed = datetime.fromisoformat(next_review_at)
+            except ValueError as exc:
+                raise AdaptiveQuestionDataError(
+                    "Next review timestamp is invalid."
+                ) from exc
+
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise AdaptiveQuestionDataError(
+                    "Next review timestamp must be timezone-aware."
+                )
+
+            if concept_id in next_reviews:
+                raise AdaptiveQuestionDataError(
+                    "Duplicate next review record."
+                )
+
+            next_reviews[concept_id] = parsed
+
+        return next_reviews
 
     @staticmethod
     def _build_attempts(
